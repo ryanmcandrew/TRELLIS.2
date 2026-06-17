@@ -4,16 +4,22 @@
 #include <cmath>
 #include <ctime>
 
-#include "api.h"
-
-
-constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();
-
-
+// Define these vector types before torch/extension.h pulls in HIP headers,
+// then block HIP from redefining them via its own include guard.
+// On HIP, amd_hip_vector_types.h would redefine float3/int3/int4 without these guards.
 struct float3 {float x, y, z; float& operator[](int i) {return (&x)[i];}};
 struct int3 {int x, y, z; int& operator[](int i) {return (&x)[i];}};
 struct int4 {int x, y, z, w; int& operator[](int i) {return (&x)[i];}};
 struct bool3 {bool x, y, z; bool& operator[](int i) {return (&x)[i];}};
+
+// Block HIP vector types header from redefining the structs above.
+// Guard name matches the include-guard in hip/amd_detail/amd_hip_vector_types.h.
+#define HIP_INCLUDE_HIP_AMD_DETAIL_HIP_VECTOR_TYPES_H
+
+#include "api.h"
+
+
+constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();;
 
 
 template <typename T, typename U>
@@ -304,7 +310,7 @@ void boundry_qef(
         // Calculate the QEF for the edge (boundary) defined by v0 and v1
         Eigen::Vector3d dir(v1.x() - v0.x(), v1.y() - v0.y(), v1.z() - v0.z());
         double segment_length = dir.norm();
-        if (segment_length < 1e-6d) continue; // Skip degenerate edges (zero-length)
+        if (segment_length < 1e-6) continue; // Skip degenerate edges (zero-length)
         dir.normalize();  // unit direction vector
 
         // Projection matrix orthogonal to the direction: I - d d^T
@@ -334,7 +340,7 @@ void boundry_qef(
 
         Eigen::Vector3d tMax, tDelta;
         for (int axis = 0; axis < 3; ++axis) {
-            if (dir[axis] == 0.0d) {
+            if (dir[axis] == 0.0) {
                 tMax[axis] = std::numeric_limits<double>::infinity();
                 tDelta[axis] = std::numeric_limits<double>::infinity();
             } else {

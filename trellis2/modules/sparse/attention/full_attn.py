@@ -211,6 +211,39 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             max_q_seqlen = max(q_seqlen)
             max_kv_seqlen = max(kv_seqlen)
         out = flash_attn_3.flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_q_seqlen, max_kv_seqlen)
+    elif config.ATTN in ('sdpa', 'naive'):
+        import math
+        import torch.nn.functional as F
+        out_parts = []
+        q_offset = 0
+        kv_offset = 0
+        for i in range(len(q_seqlen)):
+            ql = q_seqlen[i]
+            kvl = kv_seqlen[i]
+            if num_all_args == 1:
+                qi, ki, vi = qkv[q_offset:q_offset+ql].unbind(dim=1)
+            elif num_all_args == 2:
+                qi = q[q_offset:q_offset+ql]
+                ki, vi = kv[kv_offset:kv_offset+kvl].unbind(dim=1)
+            else:
+                qi = q[q_offset:q_offset+ql]
+                ki = k[kv_offset:kv_offset+kvl]
+                vi = v[kv_offset:kv_offset+kvl]
+            # [L, H, C] -> [1, H, L, C]
+            qi = qi.permute(1, 0, 2).unsqueeze(0).contiguous()
+            ki = ki.permute(1, 0, 2).unsqueeze(0).contiguous()
+            vi = vi.permute(1, 0, 2).unsqueeze(0).contiguous()
+            if config.ATTN == 'sdpa':
+                oi = F.scaled_dot_product_attention(qi, ki, vi)
+            else:
+                scale = qi.shape[-1] ** -0.5
+                a = (qi @ ki.transpose(-2, -1)) * scale
+                a = torch.softmax(a, dim=-1)
+                oi = a @ vi
+            out_parts.append(oi.squeeze(0).permute(1, 0, 2))
+            q_offset += ql
+            kv_offset += kvl
+        out = torch.cat(out_parts, dim=0)
     else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")
     

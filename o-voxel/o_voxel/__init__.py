@@ -1,7 +1,11 @@
 from . import (
     convert,
     io,
-    postprocess,
     rasterize,
     serialize
 )
+
+try:
+    from . import postprocess
+except ImportError:
+    pass
